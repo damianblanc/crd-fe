@@ -21,10 +21,11 @@ function FCIRegulationTable() {
   const dataAsc = [...data].sort((a, b) => a.id - b.id);
   const specieTypeAsc = [...data].sort((a, b) => a.specieType > b.specieType ? 1 : -1);
   const [validationErrors, setValidationErrors] = useState({});
+  const [validationEditErrors, setValidationEditErrors] = useState({});
   const tableDataToSend = JSON.stringify(data, null, 2);
   const [sum, setSum] = useState(0);
 
-  const validateRow = (row) => {
+  const validateNewRow = (row) => {
     const regex = /^(?:[^:]+:\d+(\.\d+)?%)(?:;[^:]+:\d+(\.\d+)?%)*$/;
     const errors = {};
     if (!newRow.symbol) errors.symbol = 'Symbol is required';
@@ -38,7 +39,27 @@ function FCIRegulationTable() {
       } else {
         if (findAndSumNumbers(newRow.composition) !== 100) errors.composition = 'Composition Percentage must close to 100%';
       }
-    }    
+    }
+    console.log("Inside validateRow");
+    return errors;
+  };
+
+  const validateEditRow = () => {
+    const regex = /^(?:[^:]+:\d+(\.\d+)?%)(?:;[^:]+:\d+(\.\d+)?%)*$/;
+    const errors = {};
+    if (!editRow.symbol) errors.symbol = 'Symbol is required';
+    if (!editRow.name) errors.name = 'Name is required';
+    if (!editRow.description) errors.description = 'Description is required';
+    if (!editRow.composition) { 
+        errors.composition = 'Composition is required';
+    } else {
+      if (!regex.test(editRow.composition)) {
+        errors.composition = 'Composition format should be "<Specie Type>:<Percentage Value> + %" separated by semicolons. I/E: Equity:40.5%;Bond:39.5%;Cash:20%';
+      } else {
+        if (findAndSumNumbers(editRow.composition) !== 100) errors.composition = 'Composition Percentage must close to 100%';
+      }
+    }
+    console.log("Inside validateRow");
     return errors;
   };
 
@@ -48,13 +69,12 @@ function FCIRegulationTable() {
       .then((json) => setData(json));
   }, []);
 
-
   const clearAddRow = (() => {
     setNewRow({ ...newRow, symbol: '', name: '', description: '', composition: '' });
   })
 
   const handleAddRow = () => {
-    const errors = validateRow();
+    const errors = validateNewRow();
     if (Object.keys(errors).length === 0) {
         const s = JSON.stringify(newRow, null, 2);
         console.log("s=" + s);
@@ -88,7 +108,8 @@ function FCIRegulationTable() {
 
   const handleEditRowForward = (row) => {
     setEditRowId(row.id);
-    setEditRow(row);
+    setEditRow({ ...editRow, id: row.id, symbol: row.symbol, name: row.name, description: row.description,
+      composition: row.composition.map((c) => c.specieType + ":" + c.percentage + "%").join(';')});
   }
 
   const handleEditRowBack = (id) => {
@@ -97,7 +118,9 @@ function FCIRegulationTable() {
 
   const handleEditRow = (row) => {
     setEditRowId(row.id);
-    const errors = validateRow();
+    console.log("row.id=" + row.id);
+    const errors = validateEditRow(row);
+    console.log("Object.keys(errors).length" + Object.keys(errors).length)
     if (Object.keys(errors).length === 0) {
       const updatedData = data.filter((r) => r.id !== row.id);
       fetch(`http://localhost:8098/api/v1/fci/${row.id}`, {
@@ -110,12 +133,34 @@ function FCIRegulationTable() {
         const updatedData = data.filter((r) => r.id !== row.id);
         setData(updatedData);
       });
+      setValidationEditErrors({});
+    } else {
+      setValidationEditErrors(errors);
     }
   };
+  
 
   return (
        <CRow>
        <CCol xs={12}>
+       
+        {Object.keys(validationEditErrors)?.length > 0 ? 
+            <CCard>
+              <CCardHeader>
+                <strong className="text-medium-emphasis small">There are some errors on FCI Regulation definition</strong>
+              </CCardHeader>
+              <CCardBody>
+                  <div className="validation-errors">
+                    {Object.keys(validationEditErrors).map((key) => (
+                      <div key={key} className="error">
+                        <code>&#187;&nbsp;{validationEditErrors[key]}</code>
+                      </div>
+                    ))}
+                  </div>
+              </CCardBody>
+            </CCard>
+        : null}
+
         <CCard>
           <CCardHeader>
             <strong>FCI Regulations</strong>
@@ -157,7 +202,7 @@ function FCIRegulationTable() {
                           {editRowId === row.id ? (
                             <input
                               type="text"
-                              // placeholder={row.description}
+                              placeholder={row.description}
                               value={editRow.description}
                               onChange={(e) => setEditRow({ ...editRow, description: e.target.value })}
                             />
@@ -168,11 +213,11 @@ function FCIRegulationTable() {
                         <td>
                           {editRowId === row.id ? (
                             <>
-                              <CButton shape='rounded' size='sm' color='string' onClick={handleEditRowForward}>
+                              <CButton shape='rounded' size='sm' color='string' onClick={() => handleEditRow(row)}>
                                   <CIcon icon={cilPaperPlane} size="xl"/>
                               </CButton>
 
-                              <CButton shape='rounded' size='sm' color='string' onClick={handleEditRowBack}>
+                              <CButton shape='rounded' size='sm' color='string' onClick={() => handleEditRowBack}>
                                   <CIcon icon={cilMediaSkipBackward} size="xl"/>
                               </CButton>
                             </>
@@ -181,7 +226,7 @@ function FCIRegulationTable() {
                               <CButton shape='rounded' size='sm' color='string' onClick={ () => handleDeleteRow(row.id, row.symbol)}>
                                   <CIcon icon={cilTrash} size="xl"/>
                               </CButton>&nbsp;
-                              <CButton shape='rounded' size='sm' color='string' onClick={ () =>  handleEditRow(row)}>
+                              <CButton shape='rounded' size='sm' color='string' onClick={ () =>  handleEditRowForward(row)}>
                                   <CIcon icon={cilPencil} size="xl"/>
                               </CButton>
                               </>
@@ -268,11 +313,11 @@ function FCIRegulationTable() {
                     </td>
                     <td className="text-medium-emphasis">
                       <>
-                      <CButton component="a" color="string" role="button" size='sm' onClick={handleAddRow}>
+                      <CButton component="a" color="string" role="button" size='sm' onClick={() => handleAddRow()}>
                           <CIcon icon={cilPaperPlane} size="xl"/>
                       </CButton>
 
-                      <CButton component="a" color="string" role="button" size='sm' onClick={clearAddRow}>
+                      <CButton component="a" color="string" role="button" size='sm' onClick={() => clearAddRow}>
                           <CIcon icon={cilTrash} size="xl"/>
                       </CButton>
                       </>
